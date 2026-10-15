@@ -1,29 +1,13 @@
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-const levelInstructions = {
-  1: `FOUNDATION: Use small positive integers and simple sequences.
-Give one clear step at a time, simple vocabulary, and direct hints.
-Focus on identifying the common difference and finding the next term.`,
-  2: `STANDARD: Use grade-level questions about common differences,
-missing terms, nth terms, and arithmetic sequence formulas.
-Give a useful hint and show the calculation in the solution.`,
-  3: `ADVANCED: Use multi-step reasoning, arithmetic series, or realistic
-applications. Include a challenge requiring more than one calculation.
-Give strategic hints before showing a complete solution.`
-};
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST." });
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
     return res.status(500).json({
-      error: "OPENAI_API_KEY is not configured."
+      error: "GEMINI_API_KEY is missing in Vercel Environment Variables."
     });
   }
 
@@ -31,62 +15,110 @@ export default async function handler(req, res) {
 
   if (!["generate", "hint", "explain", "check"].includes(action) ||
       ![1, 2, 3].includes(Number(level))) {
-    return res.status(400).json({ error: "Invalid action or level." });
+    return res.status(400).json({
+      error: "Invalid action or level."
+    });
   }
 
+  const levels = {
+    1: "FOUNDATION: Use simple sequences, small numbers, direct hints, and step-by-step guidance.",
+    2: "STANDARD: Use missing terms, common differences, and nth-term formula problems.",
+    3: "ADVANCED: Use multi-step problems, arithmetic series, and real-life applications."
+  };
+
   const systemPrompt = `
-You are a careful mathematics tutor specializing in arithmetic sequences.
-Adapt your teaching to this level:
-${levelInstructions[level]}
+You are a careful arithmetic sequence mathematics tutor.
+Adapt your response to this level: ${levels[level]}
 
-Math facts:
-- An arithmetic sequence has a constant difference between terms.
-- nth term: a_n = a_1 + (n - 1)d.
-- Sum of first n terms: S_n = n(a_1 + a_n)/2.
+Formulas:
+nth term: a_n = a_1 + (n - 1)d
+sum: S_n = n(a_1 + a_n) / 2
 
-Always verify the arithmetic before answering.
-Never change the existing question except when generating a new one.
-Use clear, student-friendly English.
+Check all calculations carefully.
 Return ONLY valid JSON with these string fields:
 problem, answer, hint, explanation, feedback.
-For unused fields return an empty string.
-The answer field must contain the correct final answer.
-Do not reveal the final answer in a hint.
+Use empty strings for unused fields.
+A hint must not reveal the final answer.
+Explain solutions in clear, student-friendly English.
 `;
 
-  const taskPrompt = action === "generate"
-    ? `Create one new arithmetic sequence problem for level ${level}.
-Include a clear question. Supply its correct answer, a tailored hint,
-and a step-by-step solution.`
-    : `Action: ${action}
-Existing problem data: ${JSON.stringify(problem || {})}
+  let task;
+
+  if (action === "generate") {
+    task = `Create one new arithmetic sequence question for level ${level}.
+Include its correct answer, a helpful hint, a step-by-step explanation,
+and feedback. Ensure all calculations are correct.`;
+  } else if (action === "hint") {
+    task = `Give a hint without revealing the answer.
+Existing problem: ${JSON.stringify(problem || {})}`;
+  } else if (action === "explain") {
+    task = `Explain the solution step by step.
+Existing problem: ${JSON.stringify(problem || {})}`;
+  } else {
+    task = `Check the student's answer and give encouraging feedback.
+Existing problem: ${JSON.stringify(problem || {})}
 Student answer: ${String(userAnswer || "")}
-For hint: give a helpful hint without the final answer.
-For explain: give the correct step-by-step solution.
-For check: compare the student's answer with the correct answer.
-Be encouraging and explain any error. Tolerate equivalent numeric forms.
-Return the requested content in the JSON fields.`;
+Say whether the answer is correct and explain any mistake.`;
+  }
 
   try {
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: taskPrompt }
-      ],
-      temperature: 0.4
-    });
-
-    const result = JSON.parse(
-      completion.choices[0].message.content
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          },
+          contents: [{
+            role: "user",
+            parts: [{ text: task }]
+          }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.3
+          }
+        })
+      }
     );
 
-    return res.status(200).json(result);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Gemini API error:", JSON.stringify(data));
+      return res.status(response.status).json({
+        error: data.error?.message || "Gemini API request failed."
+      });
+    }
+
+    const text = data.candidates?.[0]?.content?.parts
+      ?.map(part => part.text || "")
+      .join("");
+
+    if (!text) {
+      return res.status(502).json({
+        error: "Gemini returned an empty response. Please try again."
+      });
+    }
+
+    const result = JSON.parse(text);
+
+    return res.status(200).json({
+      problem: result.problem || "",
+      answer: result.answer || "",
+      hint: result.hint || "",
+      explanation: result.explanation || "",
+      feedback: result.feedback || ""
+    });
+
   } catch (error) {
-    console.error("Tutor API error:", error.message);
+    console.error("Tutor error:", error.message);
     return res.status(500).json({
-      error: "The AI tutor could not answer. Please try again."
+      error: "Tutor error: " + error.message
     });
   }
 }
