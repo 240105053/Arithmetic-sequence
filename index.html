@@ -1,0 +1,195 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arithmetic Sequence AI Tutor</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Arial, sans-serif;
+    background: #f3f6fc; color: #202b45;
+  }
+  header {
+    background: #3348a5; color: white;
+    text-align: center; padding: 28px 16px;
+  }
+  header h1 { margin: 0 0 8px; }
+  main { max-width: 850px; margin: 28px auto; padding: 0 16px; }
+  .card {
+    background: white; padding: 24px; margin-bottom: 18px;
+    border-radius: 16px; box-shadow: 0 4px 15px #18274a12;
+  }
+  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  button {
+    padding: 12px; border: 0; border-radius: 9px;
+    background: #e8ecff; color: #273b91; cursor: pointer;
+    font-size: 15px; font-weight: bold;
+  }
+  button:hover, button.active { background: #3348a5; color: white; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .actions button { background: #3348a5; color: white; }
+  .actions button.secondary { background: #e8ecff; color: #273b91; }
+  #problem { font-size: 21px; line-height: 1.6; }
+  input {
+    width: 100%; padding: 13px; margin-top: 8px;
+    border: 1px solid #cbd3e6; border-radius: 9px; font-size: 17px;
+  }
+  .result {
+    background: #f1f4ff; border-radius: 10px;
+    padding: 16px; margin-top: 15px; line-height: 1.7;
+    white-space: pre-wrap;
+  }
+  .muted { color: #69758d; font-size: 14px; }
+  #status { min-height: 24px; color: #3348a5; }
+  @media(max-width: 500px) {
+    .levels { grid-template-columns: 1fr; }
+    .card { padding: 17px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>📘 Arithmetic Sequence AI Tutor</h1>
+  <p>Learn at your own pace with your AI math tutor.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Choose your difficulty</h2>
+    <div class="levels">
+      <button class="active" data-level="1" onclick="selectLevel(1)">
+        Level 1<br>Foundation
+      </button>
+      <button data-level="2" onclick="selectLevel(2)">
+        Level 2<br>Standard
+      </button>
+      <button data-level="3" onclick="selectLevel(3)">
+        Level 3<br>Advanced
+      </button>
+    </div>
+    <p id="levelDescription" class="muted">
+      Simple questions with guided steps and direct hints.
+    </p>
+    <div class="actions">
+      <button onclick="generateProblem()">✨ Generate New Problem</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Your math challenge</h2>
+    <div id="problem">Click "Generate New Problem" to begin.</div>
+    <label for="answer"><strong>Your answer</strong></label>
+    <input id="answer" placeholder="Enter your answer">
+    <div class="actions">
+      <button onclick="checkAnswer()">Check Answer</button>
+      <button class="secondary" onclick="getHelp('hint')">💡 Get a Hint</button>
+      <button class="secondary" onclick="getHelp('explain')">📖 Explain Solution</button>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <div id="result" class="result" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>Remember the formula</h2>
+    <p style="font-size:22px;text-align:center">
+      <strong>aₙ = a₁ + (n − 1)d</strong>
+    </p>
+    <p><strong>a₁</strong> = first term</p>
+    <p><strong>d</strong> = common difference</p>
+    <p><strong>n</strong> = term number</p>
+  </section>
+</main>
+
+<script>
+let level = 1;
+let currentProblem = null;
+
+const descriptions = {
+  1: "Simple questions with guided steps and direct hints.",
+  2: "Grade-level questions involving missing terms and the nth term.",
+  3: "Multi-step challenges, sums, and real-world applications."
+};
+
+function selectLevel(n) {
+  level = n;
+  document.querySelectorAll("[data-level]").forEach(button => {
+    button.classList.toggle("active", Number(button.dataset.level) === n);
+  });
+  document.getElementById("levelDescription").textContent = descriptions[n];
+  document.getElementById("result").hidden = true;
+  document.getElementById("status").textContent = "";
+}
+
+async function askAI(action, extra = {}) {
+  if (!currentProblem && action !== "generate") {
+    document.getElementById("status").textContent =
+      "Please generate a problem first.";
+    return null;
+  }
+
+  const status = document.getElementById("status");
+  status.textContent = "AI tutor is thinking...";
+
+  try {
+    const response = await fetch("/api/tutor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action, level, problem: currentProblem, ...extra
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed.");
+    status.textContent = "Ready!";
+    return data;
+  } catch (error) {
+    status.textContent = "Error: " + error.message +
+      " Check your API key and deployment.";
+    return null;
+  }
+}
+
+async function generateProblem() {
+  document.getElementById("result").hidden = true;
+  document.getElementById("answer").value = "";
+
+  const data = await askAI("generate");
+  if (!data) return;
+
+  currentProblem = data;
+  document.getElementById("problem").textContent = data.problem;
+}
+
+async function getHelp(action) {
+  const data = await askAI(action);
+  if (!data) return;
+
+  showResult(action === "hint" ? "💡 Hint" : "📖 Solution",
+    action === "hint" ? data.hint : data.explanation);
+}
+
+async function checkAnswer() {
+  const answer = document.getElementById("answer").value.trim();
+  if (!answer) {
+    document.getElementById("status").textContent =
+      "Please enter your answer first.";
+    return;
+  }
+
+  const data = await askAI("check", { userAnswer: answer });
+  if (!data) return;
+
+  showResult("Your feedback", data.feedback);
+}
+
+function showResult(title, text) {
+  const result = document.getElementById("result");
+  result.textContent = title + "\n\n" + text;
+  result.hidden = false;
+}
+</script>
+</body>
+</html>
