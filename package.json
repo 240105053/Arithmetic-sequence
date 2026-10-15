@@ -1,0 +1,9 @@
+{
+  "name": "arithmetic-sequence-ai-tutor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An AI tutor with three arithmetic sequence difficulty levels",
+  "dependencies": {
+    "openai": "^4.80.0"
+  }
+}
